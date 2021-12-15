@@ -1,7 +1,12 @@
+import os
+
 import numpy as np
 import matplotlib as ml
 import matplotlib.pyplot as plt
 import math
+import csv
+from PMcalcl.main import un
+import re
 
 
 class DataCalc:
@@ -12,13 +17,13 @@ class DataCalc:
         errors = [linear_error,squared_error]
 
     rep_dict = {"^": "**", "e": "math.e", "pi": "math.pi", "log": "math.log", "cos": "math.cos", "sin": "math.sin",
-                "tg": "math.tan", "ln": "math.log", " ": ""}
+                "tg": "math.tan", "ln": "math.log", "sqrt": "math.sqrt", "exp": "math.exp", " ": ""}
 
     # TODO: koeff num, dx and delt should be  specific for each coefficient and weight decays
     def __init__(self, func="", y_name="y", koef_names="", max_iter=10 ** 4, derivative_weights=None, borders=None,
                  generating_borders=None,
-                 koef_num=10, dx=10 ** -10, delt=10 ** -10, dx_weight_decay=0., weight_decay=0., rush_num = 10 ** -7,
-                 optim_func=error_funcs.squared_error, x_label="x", y_label="y", title="",
+                 gen_koef_num=10, dx=10 ** -10, delt=10 ** -10, dx_weight_decay=0., weight_decay=0., rush_num =10 ** -7,
+                 optim_func=error_funcs.squared_error, approximation_function_type=None, x_label="x", y_label="y", title="",
                  **kwargs):
         """
         :param func: function you want to approximate with (like in wolfram alpha)
@@ -28,17 +33,18 @@ class DataCalc:
         :param derivative_weights: weight for gradient descent derivative for each coefficient
         :param borders: smaller and upper limits of coefficients for each coefficient
         :param generating_borders: smaller and upper limits of coefficients for each coefficient at zero iteration
-        :param koef_num: number of starting points for coefficients
+        :param gen_koef_num: number of starting points for coefficients
         :param dx: function step
         :param delt: zero gap
         :param dx_weight_decay: weight decay for dx for gradient decay
         :param weight_decay: weight decay for gradient decay
         :param rush_num: penalty for slow error decrease
         :param optim_func: optimization function: linear_error or  squared_error
-        :param kwargs: all function variables including output of function
+        :param approximation_function_type: set "linear" for precise calculations of uncertainty
         :param x_label: label for x axis of plot
         :param y_label: label for x axis of plot
         :param title: title of plot
+        :param kwargs: all function variables including output of function
 
         This function initializes class that contains data (mesurments: parameters and output) and can execute
         operations on it (at the moment approximate data by custom function and build graph of data). It requires
@@ -77,6 +83,7 @@ class DataCalc:
         """
 
         self.optim_func = optim_func
+        self.approximation_function_type = approximation_function_type
         self.title = title
         self.y_label = y_label
         self.x_label = x_label
@@ -91,17 +98,17 @@ class DataCalc:
             borders = [[-10000, 10000] for _ in range(len(self.koef_names))]
 
         if type(borders[0]) in {int,float}:
-            borders = [[-borders[0], borders[1]] for _ in range(len(self.koef_names))]
+            borders = [[borders[0], borders[1]] for _ in range(len(self.koef_names))]
 
         if generating_borders is None:
-            generating_borders = [[-5000, 5000] for _ in range(len(self.koef_names))]
+            generating_borders = [[i[0]/3*2,i[1]/3*2] for i in borders]
 
         if type(generating_borders[0]) in {int,float}:
-            generating_borders = [[-generating_borders[0], generating_borders[1]] for _ in range(len(self.koef_names))]
+            generating_borders = [[generating_borders[0], generating_borders[1]] for _ in range(len(self.koef_names))]
 
         self.borders = borders
         self.generating_borders = generating_borders
-        self.koef_num = koef_num
+        self.gen_koef_num = gen_koef_num
 
         if derivative_weights is None:
             derivative_weights = [0.1 for i in range(len(self.koef_names))]
@@ -146,7 +153,7 @@ class DataCalc:
             plt.title(self.title)
             if self.is_graphable and not self.approx_val is None:
                 for i in range(len(self.koef_names)):
-                    exec(str(self.koef_names[i]) + "=" + str(self.approx_val[self.koef_names[i]]))
+                    exec(str(self.koef_names[i]) + "=" + (str(self.approx_val[self.koef_names[i]]) if not isinstance(self.approx_val[self.koef_names[i]], un) else str(self.approx_val[self.koef_names[i]].num)))
 
                 gvd = dict(globals().items())
                 gvd.update(dict(locals().items()))
@@ -185,7 +192,11 @@ class DataCalc:
                 was_trans = ((np.array(nd) * np.array(ndo)) < 0).all()
                 zero_transitions += 1 if was_trans and not self.optim_func in {self.error_funcs.squared_error} else 0
                 for jk in range(len(nd)):
-                    nk = k[jk] - self.derivative_weights[jk] * nd[jk] * (1-self.weight_decay) ** i * (0.5 ** zero_transitions if zero_transitions > 0 else 1)
+                    ccv = 1
+                    nk = k[jk] - self.derivative_weights[jk] ** ccv * nd[jk] * (1-self.weight_decay) ** i * (0.5 ** zero_transitions if zero_transitions > 0 else 1)
+                    while (self.borders[jk][0] > nk or nk > self.borders[jk][1]) and ccv < 5:
+                        nk = k[jk] - self.derivative_weights[jk] ** ccv * nd[jk] * (1-self.weight_decay) ** i * (0.5 ** zero_transitions if zero_transitions > 0 else 1)
+                        ccv += 1
                     if self.borders[jk][0] < nk < self.borders[jk][1]:
                         k[jk] = nk
                     else:
@@ -200,10 +211,49 @@ class DataCalc:
 
             return (func(k),) + tuple(k)
 
-        arr_lm = np.array([np.linspace(self.generating_borders[i][0], self.generating_borders[i][1], self.koef_num) for i in
+        arr_lm = np.array([np.linspace(self.generating_borders[i][0], self.generating_borders[i][1], self.gen_koef_num) for i in
                            range(len(self.koef_names))]).transpose()
         m = min(list(map(find_local_min, arr_lm)))
         m = tuple(m)
+        if self.approximation_function_type == "linear":
+            if len(self.koef_names) == 1:
+                kvls = list(self.x[self.var_names.index(self.y_name)][i] / self.x[1 - self.var_names.index(self.y_name)][i] for i in range(len(self.x)))
+                dk = math.sqrt(sum([(m[1] - kvls[i])**2 for i in range(len(kvls))])/len(kvls))
+                tk = un(m[1], dk)
+                m = (m[0], tk)
+            elif len(self.koef_names) == 2:
+                xp = self.func.find(self.var_names[1 - self.var_names.index(self.y_name)])
+                tkn = None
+                tbn = None
+                if self.func[xp-1] == "*":
+                    if self.func[xp-1-len(self.koef_names[0]):xp-1] != self.koef_names[0]:
+                        tkn = self.koef_names[1]
+                        tbn = self.koef_names[0]
+                    else:
+                        tkn = self.koef_names[0]
+                        tbn = self.koef_names[1]
+                elif self.func[xp+1] == "*":
+                    if self.func[xp+1:xp+1+len(self.koef_names[0])] != self.koef_names[0]:
+                        tkn = self.koef_names[1]
+                        tbn = self.koef_names[0]
+                    else:
+                        tkn = self.koef_names[0]
+                        tbn = self.koef_names[1]
+
+                yv = np.array(self.x[self.var_names.index(self.y_name)])
+                xv = np.array(self.x[1 - self.var_names.index(self.y_name)])
+
+                i2n = {self.koef_names.index(tkn): tkn, self.koef_names.index(tbn): tbn}
+                n2i = {tkn: self.koef_names.index(tkn), tbn: self.koef_names.index(tbn)}
+
+                dk = math.sqrt((1/(len(self.x[0])-2))*(yv.std()**2/xv.std()**2 - m[1+n2i[tkn]]**2))
+                db = dk * math.sqrt(np.mean(xv**2))
+                tkv = un(m[1+n2i[tkn]],dk)
+                tbv = un(m[1 + n2i[tbn]], db)
+                n2v = {tkn: tkv, tbn: tbv}
+                m = (m[0], n2v[i2n[0]], n2v[i2n[1]])
+
+
         self.approx_val = {self.koef_names[i]: m[1 + i] for i in range(len(self.koef_names))}
         self.approx_val.update({"error": m[0]})
         return self.approx_val
@@ -235,7 +285,7 @@ class DataCalc:
             func = func + ")"
 
             func = func.replace("=", "-")
-            funcsf = list(filter(lambda x: len(x) == 1, funcs))
+            funcsf = list(filter(lambda x: len(re.split('[+\-()*+/,.|;]',x)) == 1, funcs))
             self.purefunc = list(filter(lambda x: len(x) >= 1 and x != self.y_name, funcs))[0]
             self.is_graphable = True if len(funcsf) == 1 else False
             if len(funcsf) >= 1 and (self.y_name == "" or self.y_name not in self.var_names):
@@ -245,7 +295,18 @@ class DataCalc:
 
 
 def runfile():
-    linap = DataCalc(func="y=(k*x^2+b)^1/2", koef_names="k b", x=[1, 3, 5], y=[4, 8, 12], optim_func=DataCalc.error_funcs.squared_error, max_iter=10 ** 4, weight_decay=0, derivative_weights=0.01)
+    x_0 = list()
+    y_0 = list()
+    with open(os.path.dirname(os.path.realpath(__file__)) + '/input.csv') as csvfile:
+        spamreader = csv.reader(csvfile, delimiter=";")
+        for row in spamreader:
+            x_0 = np.append(x_0, float(str(row[0]).replace(",",".")))
+            y_0 = np.append(y_0, float(str(row[1]).replace(",",".")))
+
+    linap = DataCalc(func="y=c1+c2*x*log(x)+c3*e^x", koef_names="c1 c2 c3", x=x_0,
+                     y=y_0, optim_func=DataCalc.error_funcs.squared_error,
+                     borders=[-2, 2], generating_borders=[-11, 11],
+                     gen_koef_num=11, approximation_function_type="square", max_iter=10 ** 3, weight_decay=0, derivative_weights=0.01, x_label="f_п, гц", y_label="f_д, гц", title="Частота прецессий от чавстоты диска")
     print(str(linap.approximate()) + "\n\n")
     print(str(linap.get_error()) + "\n\n")
     print(str(linap.get_koefs()) + "\n\n")
