@@ -123,6 +123,12 @@ class DataCalc:
             self.uncertain = uncertain
 
         else:
+            ml = max(map(lambda x: len(x) if hasattr(x, "__getitem__") else 0, self.vars.values()))
+            for k in self.var_names:
+                if k != self.y_name:
+                    if not hasattr(self.vars[k], "__getitem__"):
+                        self.vars[k] = np.ones(ml) * self.vars[k]
+
             self.calc_result = self.functionv(np.array([self.vars[k] for k in self.var_names if k != self.y_name]))
 
     def functionv(self, *params):
@@ -218,10 +224,10 @@ class DataCalc:
 
             func = func.replace("=", "-")
             funcsf = list(filter(lambda x: len(re.split('[+\-()*+/,.|;]',x)) == 1, funcs))
-            self.purefunc = list(filter(lambda x: len(x) >= 1 and x != self.y_name, funcs))[0]
             self.is_graphable = True if len(funcsf) == 1 else False
             if len(funcsf) >= 1 and (self.y_name == "" or self.y_name not in self.var_names):
                 self.y_name = str(funcsf[0])
+            self.purefunc = list(filter(lambda x: len(x) >= 1 and x != self.y_name, funcs))[0]
 
         return func
 

@@ -286,10 +286,10 @@ class DataCalc:
 
             func = func.replace("=", "-")
             funcsf = list(filter(lambda x: len(re.split('[+\-()*+/,.|;]',x)) == 1, funcs))
-            self.purefunc = list(filter(lambda x: len(x) >= 1 and x != self.y_name, funcs))[0]
             self.is_graphable = True if len(funcsf) == 1 else False
             if len(funcsf) >= 1 and (self.y_name == "" or self.y_name not in self.var_names):
                 self.y_name = str(funcsf[0])
+            self.purefunc = list(filter(lambda x: len(x) >= 1 and x != self.y_name, funcs))[0]
 
         return func
 

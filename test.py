@@ -3,6 +3,8 @@ import numpy as np
 import csv
 import os
 
+from scipyf import DataCalc
+
 r_r = list()
 r_p = list()
 v_r = list()
